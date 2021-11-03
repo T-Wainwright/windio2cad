@@ -35,6 +35,12 @@ windio2cad/lib64
 windio2cad/share
 
 *.cfg
+data/
+windio2cad/bin 
+windio2cad/include 
+windio2cad/lib64 
+windio2cad/share
+.vscode/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -149,3 +155,4 @@ dmypy.json
 *.plt 
 *.p3d
 *.patch
+*.cfg
