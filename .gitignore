@@ -26,6 +26,15 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+foils/
+scripts/
+turbine_yaml/
+windio2cad/bin
+windio2cad/include
+windio2cad/lib64
+windio2cad/share
+
+*.cfg
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -137,3 +146,6 @@ dmypy.json
 # Intermediate OpenSCAD and .stl files
 *.stl
 *.scad
+*.plt 
+*.p3d
+*.patch
