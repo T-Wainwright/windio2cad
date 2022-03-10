@@ -156,3 +156,5 @@ dmypy.json
 *.p3d
 *.patch
 *.cfg
+*.png
+*.dat
