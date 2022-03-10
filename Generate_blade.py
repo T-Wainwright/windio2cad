@@ -33,8 +33,6 @@ class Blade:
 
     @staticmethod
     def myinterp(xi, x, f) -> np.array:
-        # print(x, f)
-        print(len(x), len(f))
         myspline = spline(x, f)
         return myspline(xi)
 
@@ -72,8 +70,6 @@ class Blade:
             ]
         )
         n_span = len(r_span)
-
-        # print(r_span)
         
 
         # Read in blade spanwise geometry values and put on common grid
@@ -109,13 +105,6 @@ class Blade:
                 self.outer_shape["reference_axis"]["z"]["values"],
             ),
         ]
-
-        grid_index = []
-
-        for i, grid in enumerate(self.outer_shape['chord']['grid']):
-            for af_pos in self.outer_shape["airfoil_position"]["grid"]:
-                if grid == af_pos:
-                    grid_index.append(i)
 
         # Get airfoil names and thicknesses
         af_position = self.outer_shape["airfoil_position"]["grid"]
@@ -227,34 +216,10 @@ class Blade:
                 # ax1.set_xlabel('x')
                 # ax1.set_ylabel('y')
 
-            for i in range(n_af_span):
-                # Correction to move the leading edge (min x point) to (0,0)
-                af_le = coord_xy_used[i, np.argmin(coord_xy_used[i, :, 0]), :]
-                coord_xy_used[i, :, 0] -= af_le[0]
-                coord_xy_used[i, :, 1] -= af_le[1]
-                c = max(coord_xy_used[i, :, 0]) - min(coord_xy_used[i, :, 0])
-                coord_xy_used[i, :, :] /= c
-                # If the rel thickness is smaller than 0.4 apply a trailing ege smoothing step
-                if r_thick_used[i] < 0.4:
-                    coord_xy_used[i, :, :] = geom.trailing_edge_smoothing(
-                        coord_xy_used[i, :, :]
-                    )
-                
-                # ax1.plot(coord_xy_interp[i,:,0], coord_xy_interp[i, :,1])
-                # ax1.set_xlabel('x')
-                # ax1.set_ylabel('y')
-
             # Offset by pitch axis and scale for chord
             coord_xy_dim = coord_xy_interp.copy()
             coord_xy_dim[:, :, 0] -= pitch_axis[:, np.newaxis]
             coord_xy_dim = coord_xy_dim * chord[:, np.newaxis, np.newaxis]
-
-            pitch_used = [self.outer_shape['pitch_axis']['values'][i] for i in grid_index]
-
-            coord_xy_dim_used = coord_xy_used.copy()
-            coord_xy_dim_used[:, :, 0] -= pitch_used[:, np.newaxis]
-            coord_xy_dim_used = coord_xy_dim * chord[:, np.newaxis, np.newaxis]
-
 
             # Rotate to twist angle
             coord_xy_dim_twisted = np.zeros(coord_xy_interp.shape)
@@ -274,6 +239,209 @@ class Blade:
             # Assemble lofted shape along reference axis
             lofted_shape = np.zeros((n_span, n_xy, 3))
             for i in range(n_span):
+                for j in range(n_xy):
+                    lofted_shape[i, j, :] = (
+                        np.r_[
+                            coord_xy_dim_twisted[i, j, 1],
+                            coord_xy_dim_twisted[i, j, 0],
+                            0.0,
+                        ]
+                        + ref_axis[i, :]
+                    )
+                # if 25 > ref_axis[i, 2] > 24:
+                #     ax1.plot(lofted_shape[i,:,0], lofted_shape[i, :,1])
+                #     ax1.set_xlabel('x')
+                #     ax1.set_ylabel('y')
+
+            fig.savefig('aerofoils.png', format='png')
+
+            return lofted_shape
+
+    def extract_sections(self, n_span_min=10, n_xy=300) -> np.array:
+        """
+        Creates the lofted shape of a blade and returns a NumPy array
+        of the polygons at each cross section.
+
+        Parameters
+        ----------
+        n_span_min: int
+            Number of cross sections to create across span of
+            blade.
+
+        n_xy: int
+            The number of x, y points in the polygons at each slice of
+            the blade.
+
+        Returns
+        -------
+        np.array
+            An array of the polygons at each cross section of the blade.
+        """
+
+        # Get airfoil names and thicknesses
+        af_position = self.outer_shape["airfoil_position"]["grid"]
+        af_used = self.outer_shape["airfoil_position"]["labels"]
+        n_af_span = len(af_position)
+        n_af = len(self.airfoils)
+        name = n_af * [""]
+        r_thick = np.zeros(n_af)
+        for i in range(n_af):
+            name[i] = self.airfoils[i]["name"]
+            r_thick[i] = self.airfoils[i]["relative_thickness"]
+
+        chord = []
+        chord_p = []
+        twist = []
+        twist_p = []
+        pitch_axis = []
+        pitch_p_axis = []
+        ref_axis = np.zeros((n_af_span, 3))
+
+        # Read in blade spanwise geometry values and put on common grid
+        for i, af_pos in enumerate(af_position):
+            for j, c_pos in enumerate(self.outer_shape["chord"]["grid"]):
+                if af_pos == c_pos:
+                    chord.append(self.outer_shape["chord"]["values"][j])
+                    chord_p.append(self.outer_shape['chord']['grid'][j])
+
+            for j, t_pos in enumerate(self.outer_shape["twist"]["grid"]):
+                if af_pos == t_pos:
+                    twist.append(self.outer_shape["twist"]["values"][j])
+                    twist_p.append(self.outer_shape['twist']['grid'][j])
+
+            for j, p_pos in enumerate(self.outer_shape["pitch_axis"]["grid"]):
+                if af_pos == p_pos:
+                    pitch_axis.append(self.outer_shape["pitch_axis"]["values"][j])
+                    pitch_p_axis.append(self.outer_shape["pitch_axis"]["grid"][j])
+
+            for j, r_pos in enumerate(self.outer_shape["reference_axis"]["x"]["grid"]):
+                if af_pos == r_pos:
+                    ref_axis[i, :] = [self.outer_shape["reference_axis"]["x"]["values"][j], self.outer_shape["reference_axis"]["y"]["values"][j], self.outer_shape["reference_axis"]["z"]["values"][j]]
+
+
+        with plt.style.context('default'):
+            fig, ax1 = plt.subplots()
+
+            # Create common airfoil coordinates grid
+            coord_xy = np.zeros((n_af, n_xy, 2))
+            for i in range(n_af):
+                points = np.c_[
+                    self.airfoils[i]["coordinates"]["x"],
+                    self.airfoils[i]["coordinates"]["y"],
+                ]
+
+                # Check that airfoil points are declared from the TE suction side to TE pressure side
+                idx_le = np.argmin(points[:, 0])
+                if np.mean(points[:idx_le, 1]) > 0.0:
+                    print('flip')
+                    print(af_used[i])
+                    points = np.flip(points, axis=0)
+                # if i == 2:
+                #     ax1.plot(points[:,0], points[:, 1])
+                #     ax1.set_xlabel('x')
+                #     ax1.set_ylabel('y')
+                
+                # Remap points using class AirfoilShape
+                af = geom.AirfoilShape(points=points)
+                af.redistribute(n_xy, even=False, dLE=True)
+                af_points = af.points
+
+                # Add trailing edge point if not defined
+                if [1, 0] not in af_points.tolist():
+                    af_points[:, 0] -= af_points[np.argmin(af_points[:, 0]), 0]
+                c = max(af_points[:, 0]) - min(af_points[:, 0])
+                af_points[:, :] /= c
+
+                coord_xy[i, :, :] = af_points
+
+                # if 0 < i < 4:
+                #     ax1.plot(coord_xy[i,:,0], coord_xy[i, :,1])
+                #     ax1.set_xlabel('x')
+                #     ax1.set_ylabel('y')
+
+                # if 25 > ref_axis[i, 2] > 24:
+                #     ax1.plot(coord_xy[i,:,0], coord_xy[i, :,1])
+                #     ax1.set_xlabel('x')
+                #     ax1.set_ylabel('y')
+
+            # Reconstruct the blade relative thickness along span with a pchip
+            r_thick_used = np.zeros(n_af_span)
+            coord_xy_used = np.zeros((n_af_span, n_xy, 2))
+            coord_xy_interp = np.zeros((n_af_span, n_xy, 2))
+            coord_xy_dim = np.zeros((n_af_span, n_xy, 2))
+
+            for i in range(n_af_span):
+                for j in range(n_af):
+                    if af_used[i] == name[j]:
+                        r_thick_used[i] = r_thick[j]
+                        coord_xy_used[i, :, :] = coord_xy[j, :, :]
+                
+                # if 1 < i < 4:
+                ax1.plot(coord_xy_used[i, :, 0], coord_xy_used[i, :, 1], '.')
+                ax1.set_xlabel('x')
+                ax1.set_ylabel('y')
+
+            r_thick_interp = r_thick_used
+
+            # ax1.plot(r_span, r_thick_interp)
+
+            # Spanwise interpolation of the profile coordinates with a pchip - this is where the kink appears
+            r_thick_unique, indices = np.unique(r_thick_used, return_index=True)
+
+            print(r_thick_interp.shape, r_thick_unique.shape, coord_xy_used[indices, :, :].shape)
+            for i in range(n_xy):
+                for j in range(2):
+                    coord_xy_interp[:, i, j] = np.flip(
+                        self.myinterp(
+                            np.flip(r_thick_interp), r_thick_unique, coord_xy_used[indices, i, j]
+                        ),
+                        axis=0,
+                    )
+            for i in range(n_af_span):
+                if 25 > ref_axis[i, 2] > 24:
+                    ax1.plot(coord_xy_interp[i,:,0], coord_xy_interp[i,:,1])
+                    ax1.set_xlabel('x')
+                    ax1.set_ylabel('y')
+                # Correction to move the leading edge (min x point) to (0,0)
+                af_le = coord_xy_interp[i, np.argmin(coord_xy_interp[i, :, 0]), :]
+                coord_xy_interp[i, :, 0] -= af_le[0]
+                coord_xy_interp[i, :, 1] -= af_le[1]
+                c = max(coord_xy_interp[i, :, 0]) - min(coord_xy_interp[i, :, 0])
+                coord_xy_interp[i, :, :] /= c
+                # If the rel thickness is smaller than 0.4 apply a trailing ege smoothing step
+                # if r_thick_interp[i] < 0.4:
+                #     coord_xy_interp[i, :, :] = geom.trailing_edge_smoothing(
+                #         coord_xy_interp[i, :, :]
+                #     )
+                
+                # ax1.plot(coord_xy_interp[i,:,0], coord_xy_interp[i, :,1])
+                # ax1.set_xlabel('x')
+                # ax1.set_ylabel('y')
+            pitch_axis = np.array(pitch_axis)
+            chord = np.array(chord)
+            # Offset by pitch axis and scale for chord
+            coord_xy_dim = coord_xy_interp.copy()
+            coord_xy_dim[:, :, 0] -= pitch_axis[:, np.newaxis]
+            coord_xy_dim = coord_xy_dim * chord[:, np.newaxis, np.newaxis]
+
+            # Rotate to twist angle
+            coord_xy_dim_twisted = np.zeros(coord_xy_interp.shape)
+            for i in range(n_af_span):
+                # ax1.plot(coord_xy_dim[i,:,0], coord_xy_dim[i, :,1])
+                # ax1.set_xlabel('x')
+                # ax1.set_ylabel('y')
+                x = coord_xy_dim[i, :, 0]
+                y = coord_xy_dim[i, :, 1]
+                coord_xy_dim_twisted[i, :, 0] = x * np.cos(twist[i]) - y * np.sin(twist[i])
+                coord_xy_dim_twisted[i, :, 1] = y * np.cos(twist[i]) + x * np.sin(twist[i])
+
+                # ax1.plot(coord_xy_dim_twisted[i,:,0], coord_xy_dim_twisted[i, :,1])
+                # ax1.set_xlabel('x')
+                # ax1.set_ylabel('y')
+
+            # Assemble lofted shape along reference axis
+            lofted_shape = np.zeros((n_af_span, n_xy, 3))
+            for i in range(n_af_span):
                 for j in range(n_xy):
                     lofted_shape[i, j, :] = (
                         np.r_[
@@ -347,31 +515,11 @@ class Blade:
         return hull_of_extrusions
 
 
-def c2(self, r):
-    r_support = 20
-
-    e = r / r_support
-
-    if hasattr(e, '__iter__'):
-        result = []
-        for ei in e:
-            if ei < 1:
-                result.append((1 - e)**4 + (4 * e + 1))
-            else:
-                result.append(0)
-        result = np.array(result)
-        
-    if ei < 1:
-        result = ((1 - e)**4 + (4 * e + 1))
-    else:
-        result = (0)
-
-    return result
-
 
 blade = Blade('IEA-15-240-RWT.yaml')
 print(len(blade.outer_shape['airfoil_position']['labels']))
-points = blade.generate_lofted(n_span_min=300, n_xy=300)
+# points = blade.generate_lofted(n_span_min=300, n_xy=300)
+points = blade.extract_sections()
 # points = blade.blade_hull(downsample_z = 10)
 
 print(points.shape)
@@ -394,7 +542,7 @@ print(points.shape)
 f = open('surf_coarse.dat','w')
 
 f.write('TITLE = \" WINDIO TEST CASE\" \n')
-f.write('VARIABLES = \"X\" \"Y\" \"Z\" \n')
+# f.write('VARIABLES = \"X\" \"Y\" \"Z\" \n')
 f.write('ZONE I= {} J = {} F=point \n'.format(points.shape[1] + 1, (points.shape[0])))
 for i in range(points.shape[0]):
     for j in range(points.shape[1]):
